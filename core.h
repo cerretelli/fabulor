@@ -36,7 +36,6 @@ gint generate_cert(_widgets *widgets, _cert *cs, gint entropy);
 gint generate_odd_number();
 gchar *generate_string(gchar *out, gint length);
 void clean_up(_cert *cs);
-gint encrypt_file(_widgets *widgets);
-gint decrypt_file(_widgets *widgets);
+gint encrypt_file(_widgets *widgets, const gchar *fd, _cert *cs);
 
 #endif
