@@ -12,7 +12,7 @@ gint init_core(_widgets *widgets)
 	_cert *cs;
 	gint fd = 0, n = 0;
 	guchar buf[1024];
-	
+		
 	cs = g_malloc(sizeof(_cert));
 	
 	ERR_load_crypto_strings();
@@ -26,6 +26,12 @@ gint init_core(_widgets *widgets)
 	if(generate_cert(widgets, cs, n) != 0)
 	{
 		log_message(widgets, "[!] Certificate generation failed");
+		return 1;
+	}
+	
+	if(encrypt_file(widgets, gtk_entry_buffer_get_text(GTK_ENTRY_BUFFER(widgets->buffer_open)), cs) != 0)
+	{
+		log_message(widgets, "[!] encrypting file failed");
 		return 1;
 	}
 	
@@ -47,7 +53,7 @@ gint generate_cert(_widgets *widgets, _cert *cs, gint entropy)
 	
 	if((cs->rsa = RSA_new()) == 0)
 	{
-		log_message(widgets, "[!] RSA_new failed");
+		log_message(widgets, g_strdup_printf("[!] RSA_new failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
@@ -79,45 +85,47 @@ gint generate_cert(_widgets *widgets, _cert *cs, gint entropy)
 		
 	if((cs->rsa = RSA_generate_key(size, generate_odd_number(), 0, 0)) == NULL)
 	{
-		log_message(widgets, "[!] RSA_generate_key failed");
+		log_message(widgets, g_strdup_printf("[!] RSA_generate_key failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
 	if(!RSA_check_key(cs->rsa))
 	{
-		log_message(widgets, "[!] RSA_check_key failed");
+		log_message(widgets, g_strdup_printf("[!] RSA_check_key failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
 	log_message(widgets, "RSA check key: Passed");
 	
-	//
-	//
-	cs->bio = BIO_new(BIO_s_mem());
+	if((cs->bio = BIO_new(BIO_s_mem())) == NULL)
+	{
+		log_message(widgets, g_strdup_printf("[!] BIO_new failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
+		return 1;
+	}
 	
 	if((cs->pkey = EVP_PKEY_new()) == 0)
 	{
-		log_message(widgets, "[!] EVP_PKEY_new failed");
+		log_message(widgets, g_strdup_printf("[!] EVP_PKEY_new failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
 	if(!EVP_PKEY_assign_RSA(cs->pkey, cs->rsa))
 	{
-		log_message(widgets, "[!] EVP_PKEY_assign_RSA failed");
+		log_message(widgets, g_strdup_printf("[!] EVP_PKEY_assign_RSA failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
 	log_message(widgets, "Writing Public key");
 	if(!PEM_write_bio_RSAPublicKey(cs->bio, cs->rsa))
 	{
-		log_message(widgets, "[!] PEM_write_bio_RSAPublicKey failed");
+		log_message(widgets, g_strdup_printf("[!] PEM_write_bio_RSAPublicKey failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
 	bio_return = BIO_read(cs->bio, buff, sizeof(buff)-1);
 	if(bio_return < 1)
 	{
-		log_message(widgets, "[!] BIO_read failed");
+		log_message(widgets, g_strdup_printf("[!] BIO_read failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
 	
@@ -130,7 +138,6 @@ gint generate_cert(_widgets *widgets, _cert *cs, gint entropy)
 	
 	if(!PEM_write_bio_PKCS8PrivateKey(cs->bio, cs->pkey, EVP_des_ede3_cbc(), NULL, 0, 0, cs->password))
 	{
-		//log_message(widgets, "[!] PEM_write_bio_PKCS8PrivateKey");
 		log_message(widgets, g_strdup_printf("[!] PEM_write_bio_PKCS8PrivateKey failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
 		return 1;
 	}
@@ -186,8 +193,46 @@ void clean_up(_cert *cs)
 }
 
 //
-gint encrypt_file(_widgets *widgets)
+gint encrypt_file(_widgets *widgets, const gchar *fd, _cert *cs)
 {
+	struct stat st;
+	gint size = 0;
+	BIO *input;
+	
+	log_message(widgets, g_strdup_printf("Encrypting: %s", fd));
+	
+	if((stat(fd, &st)) == -1)
+	{
+		log_message(widgets, "[!] stat failed");
+		return 1;
+	}
+	
+	// size
+	size = (gint)st.st_size;
+	log_message(widgets, g_strdup_printf("Size: %d", size));
+		
+	if((input = BIO_new_file(fd, "r")) == NULL)
+	{
+		log_message(widgets, "[!] BIO_new_file failed");
+		return 1;
+	}
+	
+	guchar buf[size];
+	guchar buff[4096];
+	
+	if((BIO_read(input, buf, size)) < 1)
+	{
+		log_message(widgets, "[!] BIO_read failed");
+		return 1;
+	}
+	
+	if((RSA_private_encrypt(size, buf, buff, cs->rsa, RSA_PKCS1_PADDING)) == -1)
+	{
+		log_message(widgets, g_strdup_printf("[!] RSA_private_encrypt failed : %s", (gchar *)ERR_reason_error_string(ERR_get_error())));
+		return 1;
+	}
+	
+	
 	return 0;
 }
 
